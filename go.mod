@@ -1,4 +1,4 @@
-module github.com/asticode/go-astiav
+module github.com/491467928/go-astiav
 
 go 1.17
 
