@@ -100,3 +100,7 @@ func FindEncoderByName(n string) *Codec {
 	defer C.free(unsafe.Pointer(cn))
 	return newCodecFromC(C.avcodec_find_encoder_by_name(cn))
 }
+
+func FillAudioFrame(frame *Frame, nzChannels int, format SampleFormat, data []byte, size int, align int) error {
+	return newError(C.avcodec_fill_audio_frame(frame.c, C.int(nzChannels), (C.enum_AVSampleFormat)(format), (*C.uint8_t)(unsafe.Pointer(&data[0])), C.int(size), C.int(align)))
+}

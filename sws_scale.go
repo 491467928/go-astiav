@@ -18,12 +18,12 @@ func (c *SwsContext) Free() {
 func (c *SwsContext) Scale(srcFrame *Frame, dstFrame *Frame, srcSliceY int, srcSliceH int) error {
 	return newError(C.sws_scale(
 		c.c,
-		srcFrame.c.data,
-		srcFrame.c.linesize,
+		&srcFrame.c.data[0],
+		&srcFrame.c.linesize[0],
 		C.int(srcSliceY),
 		C.int(srcSliceH),
-		dstFrame.c.data,
-		dstFrame.c.linesize,
+		&dstFrame.c.data[0],
+		&dstFrame.c.linesize[0],
 	))
 }
 
