@@ -1,15 +1,14 @@
 package astiav
 
-//#cgo pkg-config: libavfilter
 //#include <libavfilter/avfilter.h>
 import "C"
 
 // https://github.com/FFmpeg/FFmpeg/blob/n5.0/libavfilter/avfilter.h#L471
 type FilterLink struct {
-	c *C.struct_AVFilterLink
+	c *C.AVFilterLink
 }
 
-func newFilterLinkFromC(c *C.struct_AVFilterLink) *FilterLink {
+func newFilterLinkFromC(c *C.AVFilterLink) *FilterLink {
 	if c == nil {
 		return nil
 	}

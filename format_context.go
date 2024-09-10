@@ -1,50 +1,34 @@
 package astiav
 
-//#cgo pkg-config: libavcodec libavformat
 //#include <libavcodec/avcodec.h>
 //#include <libavformat/avformat.h>
-/*
-int astiavInterruptCallback(void *ret)
-{
-    return *((int*)ret);
-}
-AVIOInterruptCB astiavNewInterruptCallback(int *ret)
-{
-	AVIOInterruptCB c = { astiavInterruptCallback, ret };
-	return c;
-}
-*/
 import "C"
 import (
 	"math"
 	"unsafe"
 )
 
-const (
-	maxArraySize = math.MaxInt32 - 1
-)
-
 // https://github.com/FFmpeg/FFmpeg/blob/n5.0/libavformat/avformat.h#L1202
 type FormatContext struct {
-	c *C.struct_AVFormatContext
+	c *C.AVFormatContext
 }
 
-func newFormatContext() *FormatContext {
-	return &FormatContext{}
-}
-
-func newFormatContextFromC(c *C.struct_AVFormatContext) *FormatContext {
+func newFormatContextFromC(c *C.AVFormatContext) *FormatContext {
 	if c == nil {
 		return nil
 	}
-	return &FormatContext{c: c}
+	fc := &FormatContext{c: c}
+	classers.set(fc)
+	return fc
 }
+
+var _ Classer = (*FormatContext)(nil)
 
 func AllocFormatContext() *FormatContext {
 	return newFormatContextFromC(C.avformat_alloc_context())
 }
 
-func AllocOutputFormatContext(o *OutputFormat, formatName, filename string) (*FormatContext, error) {
+func AllocOutputFormatContext(of *OutputFormat, formatName, filename string) (*FormatContext, error) {
 	fonc := (*C.char)(nil)
 	if len(formatName) > 0 {
 		fonc = C.CString(formatName)
@@ -55,17 +39,28 @@ func AllocOutputFormatContext(o *OutputFormat, formatName, filename string) (*Fo
 		finc = C.CString(filename)
 		defer C.free(unsafe.Pointer(finc))
 	}
-	fc := newFormatContext()
-	var oc *C.struct_AVOutputFormat
-	if o != nil {
-		oc = o.c
+	var ofc *C.AVOutputFormat
+	if of != nil {
+		ofc = of.c
 	}
-	err := newError(C.avformat_alloc_output_context2(&fc.c, oc, fonc, finc))
-	return fc, err
+	var fcc *C.AVFormatContext
+	if err := newError(C.avformat_alloc_output_context2(&fcc, ofc, fonc, finc)); err != nil {
+		return nil, err
+	}
+	return newFormatContextFromC(fcc), nil
+}
+
+func (fc *FormatContext) Free() {
+	classers.del(fc)
+	C.avformat_free_context(fc.c)
 }
 
 func (fc *FormatContext) BitRate() int64 {
 	return int64(fc.c.bit_rate)
+}
+
+func (fc *FormatContext) Class() *Class {
+	return newClassFromC(unsafe.Pointer(fc.c))
 }
 
 func (fc *FormatContext) CtxFlags() FormatContextCtxFlags {
@@ -84,10 +79,14 @@ func (fc *FormatContext) Flags() FormatContextFlags {
 	return FormatContextFlags(fc.c.flags)
 }
 
-func (fc *FormatContext) SetInterruptCallback() *int {
-	ret := 0
-	fc.c.interrupt_callback = C.astiavNewInterruptCallback((*C.int)(unsafe.Pointer(&ret)))
-	return &ret
+func (fc *FormatContext) SetFlags(f FormatContextFlags) {
+	fc.c.flags = C.int(f)
+}
+
+func (fc *FormatContext) SetInterruptCallback() IOInterrupter {
+	i := newDefaultIOInterrupter()
+	fc.c.interrupt_callback = i.c
+	return i
 }
 
 func (fc *FormatContext) InputFormat() *InputFormat {
@@ -106,6 +105,18 @@ func (fc *FormatContext) Metadata() *Dictionary {
 	return newDictionaryFromC(fc.c.metadata)
 }
 
+func (fc *FormatContext) SetMetadata(d *Dictionary) {
+	if d == nil {
+		fc.c.metadata = nil
+	} else {
+		fc.c.metadata = d.c
+	}
+}
+
+func (fc *FormatContext) NbPrograms() int {
+	return int(fc.c.nb_programs)
+}
+
 func (fc *FormatContext) NbStreams() int {
 	return int(fc.c.nb_streams)
 }
@@ -115,7 +126,22 @@ func (fc *FormatContext) OutputFormat() *OutputFormat {
 }
 
 func (fc *FormatContext) Pb() *IOContext {
+	// If the io context has been created using the format context's OpenInput() method, we need to
+	// make sure to return the same go struct as the one stored in classers
+	if c, ok := classers.get(unsafe.Pointer(fc.c.pb)); ok {
+		if v, ok := c.(*IOContext); ok {
+			return v
+		}
+	}
 	return newIOContextFromC(fc.c.pb)
+}
+
+func (fc *FormatContext) Programs() (ps []*Program) {
+	pcs := (*[(math.MaxInt32 - 1) / unsafe.Sizeof((*C.AVProgram)(nil))](*C.AVProgram))(unsafe.Pointer(fc.c.programs))
+	for i := 0; i < fc.NbPrograms(); i++ {
+		ps = append(ps, newProgramFromC(pcs[i], fc))
+	}
+	return
 }
 
 func (fc *FormatContext) SetPb(i *IOContext) {
@@ -127,7 +153,7 @@ func (fc *FormatContext) StartTime() int64 {
 }
 
 func (fc *FormatContext) Streams() (ss []*Stream) {
-	scs := (*[maxArraySize](*C.struct_AVStream))(unsafe.Pointer(fc.c.streams))
+	scs := (*[(math.MaxInt32 - 1) / unsafe.Sizeof((*C.AVStream)(nil))](*C.AVStream))(unsafe.Pointer(fc.c.streams))
 	for i := 0; i < fc.NbStreams(); i++ {
 		ss = append(ss, newStreamFromC(scs[i]))
 	}
@@ -143,29 +169,44 @@ func (fc *FormatContext) SetStrictStdCompliance(strictStdCompliance StrictStdCom
 }
 
 func (fc *FormatContext) OpenInput(url string, fmt *InputFormat, d *Dictionary) error {
-	urlc := C.CString(url)
-	defer C.free(unsafe.Pointer(urlc))
-	var dc **C.struct_AVDictionary
+	var urlc *C.char
+	if url != "" {
+		urlc = C.CString(url)
+		defer C.free(unsafe.Pointer(urlc))
+	}
+	var dc **C.AVDictionary
 	if d != nil {
 		dc = &d.c
 	}
-	var fmtc *C.struct_AVInputFormat
+	var fmtc *C.AVInputFormat
 	if fmt != nil {
 		fmtc = fmt.c
 	}
-	return newError(C.avformat_open_input(&fc.c, urlc, fmtc, dc))
+	if err := newError(C.avformat_open_input(&fc.c, urlc, fmtc, dc)); err != nil {
+		return err
+	}
+	if pb := fc.Pb(); pb != nil {
+		classers.set(pb)
+	}
+	return nil
 }
 
 func (fc *FormatContext) CloseInput() {
-	C.avformat_close_input(&fc.c)
+	if pb := fc.Pb(); pb != nil {
+		classers.del(pb)
+	}
+	classers.del(fc)
+	if fc.c != nil {
+		C.avformat_close_input(&fc.c)
+	}
 }
 
-func (fc *FormatContext) Free() {
-	C.avformat_free_context(fc.c)
+func (fc *FormatContext) NewProgram(id int) *Program {
+	return newProgramFromC(C.av_new_program(fc.c, C.int(id)), fc)
 }
 
 func (fc *FormatContext) NewStream(c *Codec) *Stream {
-	var cc *C.struct_AVCodec
+	var cc *C.AVCodec
 	if c != nil {
 		cc = c.c
 	}
@@ -173,7 +214,7 @@ func (fc *FormatContext) NewStream(c *Codec) *Stream {
 }
 
 func (fc *FormatContext) FindStreamInfo(d *Dictionary) error {
-	var dc **C.struct_AVDictionary
+	var dc **C.AVDictionary
 	if d != nil {
 		dc = &d.c
 	}
@@ -181,7 +222,7 @@ func (fc *FormatContext) FindStreamInfo(d *Dictionary) error {
 }
 
 func (fc *FormatContext) ReadFrame(p *Packet) error {
-	var pc *C.struct_AVPacket
+	var pc *C.AVPacket
 	if p != nil {
 		pc = p.c
 	}
@@ -197,7 +238,7 @@ func (fc *FormatContext) Flush() error {
 }
 
 func (fc *FormatContext) WriteHeader(d *Dictionary) error {
-	var dc **C.struct_AVDictionary
+	var dc **C.AVDictionary
 	if d != nil {
 		dc = &d.c
 	}
@@ -205,7 +246,7 @@ func (fc *FormatContext) WriteHeader(d *Dictionary) error {
 }
 
 func (fc *FormatContext) WriteFrame(p *Packet) error {
-	var pc *C.struct_AVPacket
+	var pc *C.AVPacket
 	if p != nil {
 		pc = p.c
 	}
@@ -213,7 +254,7 @@ func (fc *FormatContext) WriteFrame(p *Packet) error {
 }
 
 func (fc *FormatContext) WriteInterleavedFrame(p *Packet) error {
-	var pc *C.struct_AVPacket
+	var pc *C.AVPacket
 	if p != nil {
 		pc = p.c
 	}
@@ -225,7 +266,7 @@ func (fc *FormatContext) WriteTrailer() error {
 }
 
 func (fc *FormatContext) GuessSampleAspectRatio(s *Stream, f *Frame) Rational {
-	var cf *C.struct_AVFrame
+	var cf *C.AVFrame
 	if f != nil {
 		cf = f.c
 	}
@@ -233,7 +274,7 @@ func (fc *FormatContext) GuessSampleAspectRatio(s *Stream, f *Frame) Rational {
 }
 
 func (fc *FormatContext) GuessFrameRate(s *Stream, f *Frame) Rational {
-	var cf *C.struct_AVFrame
+	var cf *C.AVFrame
 	if f != nil {
 		cf = f.c
 	}
@@ -246,7 +287,7 @@ func (fc *FormatContext) SDPCreate() (string, error) {
 
 func sdpCreate(fcs []*FormatContext) (string, error) {
 	return stringFromC(1024, func(buf *C.char, size C.size_t) error {
-		fccs := []*C.struct_AVFormatContext{}
+		fccs := []*C.AVFormatContext{}
 		for _, fc := range fcs {
 			fccs = append(fccs, fc.c)
 		}

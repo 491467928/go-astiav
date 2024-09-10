@@ -1,31 +1,44 @@
 package astiav
 
-//#cgo pkg-config: libavcodec libavutil
-//#include <libavcodec/avcodec.h>
-//#include <libavutil/frame.h>
+//#include "codec_context.h"
 import "C"
+import (
+	"sync"
+	"unsafe"
+)
 
 // https://github.com/FFmpeg/FFmpeg/blob/n5.0/libavcodec/avcodec.h#L383
 type CodecContext struct {
-	c *C.struct_AVCodecContext
+	c *C.AVCodecContext
+	// We need to store this to unref it properly
+	hdc *HardwareDeviceContext
 }
 
+func newCodecContextFromC(c *C.AVCodecContext) *CodecContext {
+	if c == nil {
+		return nil
+	}
+	cc := &CodecContext{c: c}
+	classers.set(cc)
+	return cc
+}
+
+var _ Classer = (*CodecContext)(nil)
+
 func AllocCodecContext(c *Codec) *CodecContext {
-	var cc *C.struct_AVCodec
+	var cc *C.AVCodec
 	if c != nil {
 		cc = c.c
 	}
 	return newCodecContextFromC(C.avcodec_alloc_context3(cc))
 }
 
-func newCodecContextFromC(c *C.struct_AVCodecContext) *CodecContext {
-	if c == nil {
-		return nil
-	}
-	return &CodecContext{c: c}
-}
-
 func (cc *CodecContext) Free() {
+	if cc.hdc != nil {
+		C.av_buffer_unref(&cc.hdc.c)
+		cc.hdc = nil
+	}
+	classers.del(cc)
 	C.avcodec_free_context(&cc.c)
 }
 
@@ -45,24 +58,21 @@ func (cc *CodecContext) SetBitRate(bitRate int64) {
 	cc.c.bit_rate = C.int64_t(bitRate)
 }
 
-func (cc *CodecContext) Channels() int {
-	return int(cc.c.channels)
+func (cc *CodecContext) ChannelLayout() ChannelLayout {
+	l, _ := newChannelLayoutFromC(&cc.c.ch_layout).clone()
+	return l
 }
 
-func (cc *CodecContext) SetChannels(channels int) {
-	cc.c.channels = C.int(channels)
-}
-
-func (cc *CodecContext) ChannelLayout() *ChannelLayout {
-	return newChannelLayoutFromC(&cc.c.ch_layout)
-}
-
-func (cc *CodecContext) SetChannelLayout(l *ChannelLayout) {
+func (cc *CodecContext) SetChannelLayout(l ChannelLayout) {
 	l.copy(&cc.c.ch_layout) //nolint: errcheck
 }
 
 func (cc *CodecContext) ChromaLocation() ChromaLocation {
 	return ChromaLocation(cc.c.chroma_sample_location)
+}
+
+func (cc *CodecContext) Class() *Class {
+	return newClassFromC(unsafe.Pointer(cc.c))
 }
 
 func (cc *CodecContext) CodecID() CodecID {
@@ -83,6 +93,17 @@ func (cc *CodecContext) ColorSpace() ColorSpace {
 
 func (cc *CodecContext) ColorTransferCharacteristic() ColorTransferCharacteristic {
 	return ColorTransferCharacteristic(cc.c.color_trc)
+}
+
+func (cc *CodecContext) ExtraData() []byte {
+	return bytesFromC(func(size *C.size_t) *C.uint8_t {
+		*size = C.size_t(cc.c.extradata_size)
+		return cc.c.extradata
+	})
+}
+
+func (cc *CodecContext) SetExtraData(b []byte) error {
+	return setBytesWithIntSizeInC(b, &cc.c.extradata, &cc.c.extradata_size)
 }
 
 func (cc *CodecContext) Flags() CodecContextFlags {
@@ -133,6 +154,10 @@ func (cc *CodecContext) Level() Level {
 	return Level(cc.c.level)
 }
 
+func (cc *CodecContext) SetLevel(l Level) {
+	cc.c.level = C.int(l)
+}
+
 func (cc *CodecContext) MediaType() MediaType {
 	return MediaType(cc.c.codec_type)
 }
@@ -147,6 +172,10 @@ func (cc *CodecContext) SetPixelFormat(pixFmt PixelFormat) {
 
 func (cc *CodecContext) Profile() Profile {
 	return Profile(cc.c.profile)
+}
+
+func (cc *CodecContext) SetProfile(p Profile) {
+	cc.c.profile = C.int(p)
 }
 
 func (cc *CodecContext) Qmin() int {
@@ -222,7 +251,7 @@ func (cc *CodecContext) SetWidth(width int) {
 }
 
 func (cc *CodecContext) Open(c *Codec, d *Dictionary) error {
-	var dc **C.struct_AVDictionary
+	var dc **C.AVDictionary
 	if d != nil {
 		dc = &d.c
 	}
@@ -230,7 +259,7 @@ func (cc *CodecContext) Open(c *Codec, d *Dictionary) error {
 }
 
 func (cc *CodecContext) ReceivePacket(p *Packet) error {
-	var pc *C.struct_AVPacket
+	var pc *C.AVPacket
 	if p != nil {
 		pc = p.c
 	}
@@ -238,7 +267,7 @@ func (cc *CodecContext) ReceivePacket(p *Packet) error {
 }
 
 func (cc *CodecContext) SendPacket(p *Packet) error {
-	var pc *C.struct_AVPacket
+	var pc *C.AVPacket
 	if p != nil {
 		pc = p.c
 	}
@@ -246,7 +275,7 @@ func (cc *CodecContext) SendPacket(p *Packet) error {
 }
 
 func (cc *CodecContext) ReceiveFrame(f *Frame) error {
-	var fc *C.struct_AVFrame
+	var fc *C.AVFrame
 	if f != nil {
 		fc = f.c
 	}
@@ -254,9 +283,86 @@ func (cc *CodecContext) ReceiveFrame(f *Frame) error {
 }
 
 func (cc *CodecContext) SendFrame(f *Frame) error {
-	var fc *C.struct_AVFrame
+	var fc *C.AVFrame
 	if f != nil {
 		fc = f.c
 	}
 	return newError(C.avcodec_send_frame(cc.c, fc))
+}
+
+func (cc *CodecContext) ToCodecParameters(cp *CodecParameters) error {
+	return cp.FromCodecContext(cc)
+}
+
+func (cc *CodecContext) FromCodecParameters(cp *CodecParameters) error {
+	return cp.ToCodecContext(cc)
+}
+
+func (cc *CodecContext) SetHardwareDeviceContext(hdc *HardwareDeviceContext) {
+	if cc.hdc != nil {
+		C.av_buffer_unref(&cc.hdc.c)
+	}
+	cc.hdc = hdc
+	if cc.hdc != nil {
+		cc.c.hw_device_ctx = C.av_buffer_ref(cc.hdc.c)
+	}
+}
+
+func (cc *CodecContext) ExtraHardwareFrames() int {
+	return int(cc.c.extra_hw_frames)
+}
+
+func (cc *CodecContext) SetExtraHardwareFrames(n int) {
+	cc.c.extra_hw_frames = C.int(n)
+}
+func (cc *CodecContext) SetMaxBFrames(value int) {
+	cc.c.max_b_frames = C.int(value)
+}
+func (cc *CodecContext) MaxBFrames() int {
+	return int(cc.c.max_b_frames)
+}
+
+type CodecContextPixelFormatCallback func(pfs []PixelFormat) PixelFormat
+
+var (
+	codecContextPixelFormatCallbacks      = make(map[*C.AVCodecContext]CodecContextPixelFormatCallback)
+	codecContextPixelFormatCallbacksMutex = &sync.Mutex{}
+)
+
+func (cc *CodecContext) SetPixelFormatCallback(c CodecContextPixelFormatCallback) {
+	// Lock
+	codecContextPixelFormatCallbacksMutex.Lock()
+	defer codecContextPixelFormatCallbacksMutex.Unlock()
+
+	// Update callback
+	if c == nil {
+		C.astiavResetCodecContextGetFormat(cc.c)
+		delete(codecContextPixelFormatCallbacks, cc.c)
+	} else {
+		C.astiavSetCodecContextGetFormat(cc.c)
+		codecContextPixelFormatCallbacks[cc.c] = c
+	}
+}
+
+//export goAstiavCodecContextGetFormat
+func goAstiavCodecContextGetFormat(cc *C.AVCodecContext, pfsCPtr *C.enum_AVPixelFormat, pfsCSize C.int) C.enum_AVPixelFormat {
+	// Lock
+	codecContextPixelFormatCallbacksMutex.Lock()
+	defer codecContextPixelFormatCallbacksMutex.Unlock()
+
+	// Get callback
+	c, ok := codecContextPixelFormatCallbacks[cc]
+	if !ok {
+		return C.enum_AVPixelFormat(PixelFormatNone)
+	}
+
+	// Get pixel formats
+	var pfs []PixelFormat
+	for _, v := range unsafe.Slice(pfsCPtr, pfsCSize) {
+		pfs = append(pfs, PixelFormat(v))
+	}
+
+	// Callback
+	return C.enum_AVPixelFormat(c(pfs))
+
 }

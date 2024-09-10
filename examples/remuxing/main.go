@@ -7,7 +7,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/491467928/go-astiav"
+	"github.com/asticode/go-astiav"
 )
 
 var (
@@ -18,8 +18,14 @@ var (
 func main() {
 	// Handle ffmpeg logs
 	astiav.SetLogLevel(astiav.LogLevelDebug)
-	astiav.SetLogCallback(func(l astiav.LogLevel, fmt, msg, parent string) {
-		log.Printf("ffmpeg log: %s (level: %d)\n", strings.TrimSpace(msg), l)
+	astiav.SetLogCallback(func(c astiav.Classer, l astiav.LogLevel, fmt, msg string) {
+		var cs string
+		if c != nil {
+			if cl := c.Class(); cl != nil {
+				cs = " - class: " + cl.String()
+			}
+		}
+		log.Printf("ffmpeg log: %s%s - level: %d\n", strings.TrimSpace(msg), cs, l)
 	})
 
 	// Parse flags
@@ -96,14 +102,12 @@ func main() {
 
 	// If this is a file, we need to use an io context
 	if !outputFormatContext.OutputFormat().Flags().Has(astiav.IOFormatFlagNofile) {
-		// Create io context
-		ioContext := astiav.NewIOContext()
-
 		// Open io context
-		if err = ioContext.Open(*output, astiav.NewIOContextFlags(astiav.IOContextFlagWrite)); err != nil {
+		ioContext, err := astiav.OpenIOContext(*output, astiav.NewIOContextFlags(astiav.IOContextFlagWrite))
+		if err != nil {
 			log.Fatal(fmt.Errorf("main: opening io context failed: %w", err))
 		}
-		defer ioContext.Closep() //nolint:errcheck
+		defer ioContext.Close() //nolint:errcheck
 
 		// Update output format context
 		outputFormatContext.SetPb(ioContext)

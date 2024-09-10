@@ -1,10 +1,9 @@
 package astiav
 
-//#cgo pkg-config: libavformat
 //#include <libavformat/avformat.h>
 import "C"
 
-type FormatEventFlag int
+type FormatEventFlag int64
 
 // https://github.com/FFmpeg/FFmpeg/blob/n5.0/libavformat/avformat.h#L1519
 const (

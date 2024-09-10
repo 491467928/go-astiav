@@ -1,6 +1,5 @@
 package astiav
 
-//#cgo pkg-config: libavcodec libavformat
 //#include <libavcodec/avcodec.h>
 //#include <libavformat/avformat.h>
 import "C"
@@ -78,7 +77,6 @@ const (
 	CodecIDAvrp                     = CodecID(C.AV_CODEC_ID_AVRP)
 	CodecIDAvs                      = CodecID(C.AV_CODEC_ID_AVS)
 	CodecIDAvui                     = CodecID(C.AV_CODEC_ID_AVUI)
-	CodecIDAyuv                     = CodecID(C.AV_CODEC_ID_AYUV)
 	CodecIDBethsoftvid              = CodecID(C.AV_CODEC_ID_BETHSOFTVID)
 	CodecIDBfi                      = CodecID(C.AV_CODEC_ID_BFI)
 	CodecIDBinData                  = CodecID(C.AV_CODEC_ID_BIN_DATA)
@@ -159,6 +157,7 @@ const (
 	CodecIDH263I                    = CodecID(C.AV_CODEC_ID_H263I)
 	CodecIDH263P                    = CodecID(C.AV_CODEC_ID_H263P)
 	CodecIDH264                     = CodecID(C.AV_CODEC_ID_H264)
+	CodecIDH265                     = CodecID(C.AV_CODEC_ID_H265)
 	CodecIDHdmvPgsSubtitle          = CodecID(C.AV_CODEC_ID_HDMV_PGS_SUBTITLE)
 	CodecIDHevc                     = CodecID(C.AV_CODEC_ID_HEVC)
 	CodecIDHevcDeprecated           = CodecID(C.AV_CODEC_ID_HEVC)

@@ -4,10 +4,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"image"
 	"log"
 	"strings"
 
-	"github.com/491467928/go-astiav"
+	"github.com/asticode/go-astiav"
 )
 
 var (
@@ -23,8 +24,14 @@ type stream struct {
 func main() {
 	// Handle ffmpeg logs
 	astiav.SetLogLevel(astiav.LogLevelDebug)
-	astiav.SetLogCallback(func(l astiav.LogLevel, fmt, msg, parent string) {
-		log.Printf("ffmpeg log: %s (level: %d)\n", strings.TrimSpace(msg), l)
+	astiav.SetLogCallback(func(c astiav.Classer, l astiav.LogLevel, fmt, msg string) {
+		var cs string
+		if c != nil {
+			if cl := c.Class(); cl != nil {
+				cs = " - class: " + cl.String()
+			}
+		}
+		log.Printf("ffmpeg log: %s%s - level: %d\n", strings.TrimSpace(msg), cs, l)
 	})
 
 	// Parse flags
@@ -100,6 +107,7 @@ func main() {
 	}
 
 	// Loop through packets
+	var i image.Image
 	for {
 		// Read frame
 		if err := inputFormatContext.ReadFrame(pkt); err != nil {
@@ -131,7 +139,34 @@ func main() {
 			}
 
 			// Do something with decoded frame
-			log.Printf("new frame: stream %d - pts: %d", pkt.StreamIndex(), f.Pts())
+			if s.inputStream.CodecParameters().MediaType() == astiav.MediaTypeVideo {
+				// In this example, we'll process the frame data but you can do whatever you feel like
+				// with the decoded frame
+				fd := f.Data()
+
+				// Image has not yet been initialized
+				// If the image format can change in the stream, you'll need to guess image format for every frame
+				if i == nil {
+					// Guess image format
+					// It might not return an image.Image in the proper format for your use case, in that case
+					// you can skip this step and provide .ToImage() with your own image.Image
+					var err error
+					if i, err = fd.GuessImageFormat(); err != nil {
+						log.Fatal(fmt.Errorf("main: guessing image format failed: %w", err))
+					}
+				}
+
+				// Copy frame data to the image
+				if err := fd.ToImage(i); err != nil {
+					log.Fatal(fmt.Errorf("main: copying frame data to the image failed: %w", err))
+				}
+
+				// Log
+				log.Printf("new video frame: stream %d - pts: %d - size: %dx%d - color at (0,0): %+v", pkt.StreamIndex(), f.Pts(), i.Bounds().Dx(), i.Bounds().Dy(), i.At(0, 0))
+			} else {
+				// Log
+				log.Printf("new audio frame: stream %d - pts: %d", pkt.StreamIndex(), f.Pts())
+			}
 		}
 	}
 

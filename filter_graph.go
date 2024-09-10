@@ -1,6 +1,5 @@
 package astiav
 
-//#cgo pkg-config: libavfilter
 //#include <libavfilter/avfilter.h>
 import "C"
 import (
@@ -10,26 +9,53 @@ import (
 
 // https://github.com/FFmpeg/FFmpeg/blob/n5.0/libavfilter/avfilter.h#L861
 type FilterGraph struct {
-	c *C.struct_AVFilterGraph
+	c *C.AVFilterGraph
 }
 
-func newFilterGraphFromC(c *C.struct_AVFilterGraph) *FilterGraph {
+func newFilterGraphFromC(c *C.AVFilterGraph) *FilterGraph {
 	if c == nil {
 		return nil
 	}
-	return &FilterGraph{c: c}
+	g := &FilterGraph{c: c}
+	classers.set(g)
+	return g
 }
+
+var _ Classer = (*FilterGraph)(nil)
 
 func AllocFilterGraph() *FilterGraph {
 	return newFilterGraphFromC(C.avfilter_graph_alloc())
 }
 
 func (g *FilterGraph) Free() {
-	C.avfilter_graph_free(&g.c)
+	classers.del(g)
+	if g.c != nil {
+		C.avfilter_graph_free(&g.c)
+	}
 }
 
 func (g *FilterGraph) String() string {
 	return C.GoString(C.avfilter_graph_dump(g.c, nil))
+}
+
+func (g *FilterGraph) Class() *Class {
+	return newClassFromC(unsafe.Pointer(g.c))
+}
+
+func (g *FilterGraph) ThreadCount() int {
+	return int(g.c.nb_threads)
+}
+
+func (g *FilterGraph) SetThreadCount(threadCount int) {
+	g.c.nb_threads = C.int(threadCount)
+}
+
+func (g *FilterGraph) ThreadType() ThreadType {
+	return ThreadType(g.c.thread_type)
+}
+
+func (g *FilterGraph) SetThreadType(t ThreadType) {
+	g.c.thread_type = C.int(t)
 }
 
 type FilterArgs map[string]string
@@ -50,19 +76,21 @@ func (g *FilterGraph) NewFilterContext(f *Filter, name string, args FilterArgs) 
 	}
 	cn := C.CString(name)
 	defer C.free(unsafe.Pointer(cn))
-	fc := newFilterContext()
-	err := newError(C.avfilter_graph_create_filter(&fc.c, f.c, cn, ca, nil, g.c))
-	return fc, err
+	var c *C.AVFilterContext
+	if err := newError(C.avfilter_graph_create_filter(&c, f.c, cn, ca, nil, g.c)); err != nil {
+		return nil, err
+	}
+	return newFilterContext(c), nil
 }
 
 func (g *FilterGraph) Parse(content string, inputs, outputs *FilterInOut) error {
 	cc := C.CString(content)
 	defer C.free(unsafe.Pointer(cc))
-	var ic **C.struct_AVFilterInOut
+	var ic **C.AVFilterInOut
 	if inputs != nil {
 		ic = &inputs.c
 	}
-	var oc **C.struct_AVFilterInOut
+	var oc **C.AVFilterInOut
 	if outputs != nil {
 		oc = &outputs.c
 	}

@@ -1,17 +1,16 @@
-package astiav_test
+package astiav
 
 import (
 	"testing"
 
-	"github.com/491467928/go-astiav"
 	"github.com/stretchr/testify/require"
 )
 
 func TestChannelLayout(t *testing.T) {
-	cl := astiav.ChannelLayoutStereo
-	require.Equal(t, 2, cl.NbChannels())
+	cl := ChannelLayoutStereo
+	require.Equal(t, 2, cl.Channels())
 	require.Equal(t, "stereo", cl.String())
 	require.True(t, cl.Valid())
-	require.True(t, cl.Equal(astiav.ChannelLayoutStereo))
-	require.False(t, cl.Equal(astiav.ChannelLayoutMono))
+	require.True(t, cl.Equal(ChannelLayoutStereo))
+	require.False(t, cl.Equal(ChannelLayoutMono))
 }

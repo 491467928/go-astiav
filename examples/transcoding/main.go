@@ -42,8 +42,14 @@ type stream struct {
 func main() {
 	// Handle ffmpeg logs
 	astiav.SetLogLevel(astiav.LogLevelDebug)
-	astiav.SetLogCallback(func(l astiav.LogLevel, fmt, msg, parent string) {
-		log.Printf("ffmpeg log: %s (level: %d)\n", strings.TrimSpace(msg), l)
+	astiav.SetLogCallback(func(c astiav.Classer, l astiav.LogLevel, fmt, msg string) {
+		var cs string
+		if c != nil {
+			if cl := c.Class(); cl != nil {
+				cs = " - class: " + cl.String()
+			}
+		}
+		log.Printf("ffmpeg log: %s%s - level: %d\n", strings.TrimSpace(msg), cs, l)
 	})
 
 	// Parse flags
@@ -263,14 +269,13 @@ func openOutputFile() (err error) {
 			} else {
 				s.encCodecContext.SetChannelLayout(s.decCodecContext.ChannelLayout())
 			}
-			s.encCodecContext.SetChannels(s.decCodecContext.Channels())
 			s.encCodecContext.SetSampleRate(s.decCodecContext.SampleRate())
 			if v := s.encCodec.SampleFormats(); len(v) > 0 {
 				s.encCodecContext.SetSampleFormat(v[0])
 			} else {
 				s.encCodecContext.SetSampleFormat(s.decCodecContext.SampleFormat())
 			}
-			s.encCodecContext.SetTimeBase(s.decCodecContext.TimeBase())
+			s.encCodecContext.SetTimeBase(astiav.NewRational(1, s.encCodecContext.SampleRate()))
 		} else {
 			s.encCodecContext.SetHeight(s.decCodecContext.Height())
 			if v := s.encCodec.PixelFormats(); len(v) > 0 {
@@ -278,8 +283,10 @@ func openOutputFile() (err error) {
 			} else {
 				s.encCodecContext.SetPixelFormat(s.decCodecContext.PixelFormat())
 			}
+			log.Printf("-------r--------------:%+v", s.decCodecContext.Framerate().Invert())
+			log.Printf("-------SampleAspectRatio--------------:%+v", s.decCodecContext.SampleAspectRatio())
 			s.encCodecContext.SetSampleAspectRatio(s.decCodecContext.SampleAspectRatio())
-			s.encCodecContext.SetTimeBase(s.decCodecContext.TimeBase())
+			s.encCodecContext.SetTimeBase(s.decCodecContext.Framerate().Invert())
 			s.encCodecContext.SetWidth(s.decCodecContext.Width())
 		}
 
@@ -287,7 +294,7 @@ func openOutputFile() (err error) {
 		if s.decCodecContext.Flags().Has(astiav.CodecContextFlagGlobalHeader) {
 			s.encCodecContext.SetFlags(s.encCodecContext.Flags().Add(astiav.CodecContextFlagGlobalHeader))
 		}
-
+		log.Println("-----------------open encCodec")
 		// Open codec context
 		if err = s.encCodecContext.Open(s.encCodec, nil); err != nil {
 			err = fmt.Errorf("main: opening codec context failed: %w", err)
@@ -306,15 +313,13 @@ func openOutputFile() (err error) {
 
 	// If this is a file, we need to use an io context
 	if !outputFormatContext.OutputFormat().Flags().Has(astiav.IOFormatFlagNofile) {
-		// Create io context
-		ioContext := astiav.NewIOContext()
-
 		// Open io context
-		if err = ioContext.Open(*output, astiav.NewIOContextFlags(astiav.IOContextFlagWrite)); err != nil {
+		var ioContext *astiav.IOContext
+		if ioContext, err = astiav.OpenIOContext(*output, astiav.NewIOContextFlags(astiav.IOContextFlagWrite)); err != nil {
 			err = fmt.Errorf("main: opening io context failed: %w", err)
 			return
 		}
-		c.AddWithError(ioContext.Closep)
+		c.AddWithError(ioContext.Close)
 
 		// Update output format context
 		outputFormatContext.SetPb(ioContext)
@@ -373,7 +378,7 @@ func initFilters() (err error) {
 			args = astiav.FilterArgs{
 				"pix_fmt":      strconv.Itoa(int(s.decCodecContext.PixelFormat())),
 				"pixel_aspect": s.decCodecContext.SampleAspectRatio().String(),
-				"time_base":    s.decCodecContext.TimeBase().String(),
+				"time_base":    s.inputStream.TimeBase().String(),
 				"video_size":   strconv.Itoa(s.decCodecContext.Width()) + "x" + strconv.Itoa(s.decCodecContext.Height()),
 			}
 			buffersrc = astiav.FindFilterByName("buffer")
@@ -396,7 +401,7 @@ func initFilters() (err error) {
 			err = fmt.Errorf("main: creating buffersrc context failed: %w", err)
 			return
 		}
-		if s.buffersinkContext, err = s.filterGraph.NewFilterContext(buffersink, "in", nil); err != nil {
+		if s.buffersinkContext, err = s.filterGraph.NewFilterContext(buffersink, "out", nil); err != nil {
 			err = fmt.Errorf("main: creating buffersink context failed: %w", err)
 			return
 		}

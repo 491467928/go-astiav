@@ -1,6 +1,5 @@
 package astiav
 
-//#cgo pkg-config: libavcodec libavutil
 //#include <libavcodec/avcodec.h>
 //#include <libavutil/channel_layout.h>
 import "C"
@@ -10,10 +9,10 @@ import (
 
 // https://github.com/FFmpeg/FFmpeg/blob/n5.0/libavcodec/codec.h#L202
 type Codec struct {
-	c *C.struct_AVCodec
+	c *C.AVCodec
 }
 
-func newCodecFromC(c *C.struct_AVCodec) *Codec {
+func newCodecFromC(c *C.AVCodec) *Codec {
 	if c == nil {
 		return nil
 	}
@@ -28,13 +27,17 @@ func (c *Codec) String() string {
 	return c.Name()
 }
 
-func (c *Codec) ChannelLayouts() (o []*ChannelLayout) {
+func (c *Codec) ID() CodecID {
+	return CodecID(c.c.id)
+}
+
+func (c *Codec) ChannelLayouts() (o []ChannelLayout) {
 	if c.c.ch_layouts == nil {
 		return nil
 	}
 	size := unsafe.Sizeof(*c.c.ch_layouts)
 	for i := 0; ; i++ {
-		v := newChannelLayoutFromC((*C.struct_AVChannelLayout)(unsafe.Pointer(uintptr(unsafe.Pointer(c.c.ch_layouts)) + uintptr(i)*size)))
+		v, _ := newChannelLayoutFromC((*C.AVChannelLayout)(unsafe.Pointer(uintptr(unsafe.Pointer(c.c.ch_layouts)) + uintptr(i)*size))).clone()
 		if !v.Valid() {
 			break
 		}
@@ -101,6 +104,27 @@ func FindEncoderByName(n string) *Codec {
 	return newCodecFromC(C.avcodec_find_encoder_by_name(cn))
 }
 
-func FillAudioFrame(frame *Frame, nzChannels int, format SampleFormat, data []byte, size int, align int) error {
-	return newError(C.avcodec_fill_audio_frame(frame.c, C.int(nzChannels), (C.enum_AVSampleFormat)(format), (*C.uint8_t)(unsafe.Pointer(&data[0])), C.int(size), C.int(align)))
+func (c *Codec) HardwareConfigs() (configs []CodecHardwareConfig) {
+	var i int
+	for {
+		config := C.avcodec_get_hw_config(c.c, C.int(i))
+		if config == nil {
+			break
+		}
+		configs = append(configs, newCodecHardwareConfigFromC(config))
+		i++
+	}
+	return
+}
+
+func Codecs() (cs []*Codec) {
+	var opq *C.void = nil
+	for {
+		c := C.av_codec_iterate((*unsafe.Pointer)(unsafe.Pointer(&opq)))
+		if c == nil {
+			break
+		}
+		cs = append(cs, newCodecFromC(c))
+	}
+	return
 }

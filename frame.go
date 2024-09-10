@@ -1,21 +1,23 @@
 package astiav
 
-//#cgo pkg-config: libavutil
 //#include <libavutil/channel_layout.h>
 //#include <libavutil/frame.h>
 //#include <libavutil/imgutils.h>
 //#include <libavutil/samplefmt.h>
+//#include <libavutil/hwcontext.h>
 import "C"
-import "unsafe"
+import (
+	"unsafe"
+)
 
 const NumDataPointers = uint(C.AV_NUM_DATA_POINTERS)
 
 // https://github.com/FFmpeg/FFmpeg/blob/n5.0/libavutil/frame.h#L317
 type Frame struct {
-	c *C.struct_AVFrame
+	c *C.AVFrame
 }
 
-func newFrameFromC(c *C.struct_AVFrame) *Frame {
+func newFrameFromC(c *C.AVFrame) *Frame {
 	if c == nil {
 		return nil
 	}
@@ -38,11 +40,12 @@ func (f *Frame) AllocSamples(align int) error {
 	return newError(C.av_samples_alloc(&f.c.data[0], &f.c.linesize[0], f.c.ch_layout.nb_channels, f.c.nb_samples, (C.enum_AVSampleFormat)(f.c.format), C.int(align)))
 }
 
-func (f *Frame) ChannelLayout() *ChannelLayout {
-	return newChannelLayoutFromC(&f.c.ch_layout)
+func (f *Frame) ChannelLayout() ChannelLayout {
+	l, _ := newChannelLayoutFromC(&f.c.ch_layout).clone()
+	return l
 }
 
-func (f *Frame) SetChannelLayout(l *ChannelLayout) {
+func (f *Frame) SetChannelLayout(l ChannelLayout) {
 	l.copy(&f.c.ch_layout) //nolint: errcheck
 }
 
@@ -55,7 +58,7 @@ func (f *Frame) SetColorRange(r ColorRange) {
 }
 
 func (f *Frame) Data() *FrameData {
-	return newFrameData(f)
+	return newFrameData(newFrameDataFrame(f))
 }
 
 func (f *Frame) Height() int {
@@ -80,24 +83,24 @@ func (f *Frame) SetKeyFrame(k bool) {
 
 func (f *Frame) ImageBufferSize(align int) (int, error) {
 	ret := C.av_image_get_buffer_size((C.enum_AVSampleFormat)(f.c.format), f.c.width, f.c.height, C.int(align))
-	if ret < 0 {
-		return 0, newError(ret)
+	if err := newError(ret); err != nil {
+		return 0, err
 	}
 	return int(ret), nil
 }
 
 func (f *Frame) ImageCopyToBuffer(b []byte, align int) (int, error) {
 	ret := C.av_image_copy_to_buffer((*C.uint8_t)(unsafe.Pointer(&b[0])), C.int(len(b)), &f.c.data[0], &f.c.linesize[0], (C.enum_AVSampleFormat)(f.c.format), f.c.width, f.c.height, C.int(align))
-	if ret < 0 {
-		return 0, newError(ret)
+	if err := newError(ret); err != nil {
+		return 0, err
 	}
 	return int(ret), nil
 }
 
 func (f *Frame) ImageFillBlack() error {
-	linesize := [NumDataPointers]cLong{}
+	linesize := [NumDataPointers]C.ptrdiff_t{}
 	for i := 0; i < int(NumDataPointers); i++ {
-		linesize[i] = cLong(f.c.linesize[i])
+		linesize[i] = C.ptrdiff_t(f.c.linesize[i])
 	}
 	return newError(C.av_image_fill_black(&f.c.data[0], &linesize[0], (C.enum_AVPixelFormat)(f.c.format), (C.enum_AVColorRange)(f.c.color_range), f.c.width, f.c.height))
 }
@@ -171,7 +174,7 @@ func (f *Frame) SetSampleRate(r int) {
 }
 
 func (f *Frame) NewSideData(t FrameSideDataType, size uint64) *FrameSideData {
-	return newFrameSideDataFromC(C.av_frame_new_side_data(f.c, (C.enum_AVFrameSideDataType)(t), cUlong(size)))
+	return newFrameSideDataFromC(C.av_frame_new_side_data(f.c, (C.enum_AVFrameSideDataType)(t), C.size_t(size)))
 }
 
 func (f *Frame) SideData(t FrameSideDataType) *FrameSideData {
@@ -184,6 +187,10 @@ func (f *Frame) Width() int {
 
 func (f *Frame) SetWidth(w int) {
 	f.c.width = C.int(w)
+}
+
+func (f *Frame) TransferHardwareData(dst *Frame) error {
+	return newError(C.av_hwframe_transfer_data(dst.c, f.c, 0))
 }
 
 func (f *Frame) Free() {
@@ -204,4 +211,8 @@ func (f *Frame) Unref() {
 
 func (f *Frame) MoveRef(src *Frame) {
 	C.av_frame_move_ref(f.c, src.c)
+}
+
+func (f *Frame) UnsafePointer() unsafe.Pointer {
+	return unsafe.Pointer(f.c)
 }

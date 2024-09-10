@@ -1,10 +1,9 @@
 package astiav
 
-//#cgo pkg-config: libavformat
 //#include <libavformat/avformat.h>
 import "C"
 
-type FormatContextFlag int
+type FormatContextFlag int64
 
 // https://github.com/FFmpeg/FFmpeg/blob/n5.0/libavformat/avformat.h#L1321
 const (
@@ -20,7 +19,6 @@ const (
 	FormatContextFlagFlushPackets   = FormatContextFlag(C.AVFMT_FLAG_FLUSH_PACKETS)
 	FormatContextFlagBitexact       = FormatContextFlag(C.AVFMT_FLAG_BITEXACT)
 	FormatContextFlagSortDts        = FormatContextFlag(C.AVFMT_FLAG_SORT_DTS)
-	FormatContextFlagPrivOpt        = FormatContextFlag(C.AVFMT_FLAG_PRIV_OPT)
 	FormatContextFlagFastSeek       = FormatContextFlag(C.AVFMT_FLAG_FAST_SEEK)
 	FormatContextFlagShortest       = FormatContextFlag(C.AVFMT_FLAG_SHORTEST)
 	FormatContextFlagAutoBsf        = FormatContextFlag(C.AVFMT_FLAG_AUTO_BSF)

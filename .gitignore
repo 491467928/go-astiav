@@ -1,7 +1,2 @@
 .DS_STORE
-cover*
-tmp
-/.idea/.gitignore
-/.idea/go-astiav.iml
-/.idea/modules.xml
-/.idea/vcs.xml
+coverage.out

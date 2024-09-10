@@ -1,10 +1,9 @@
 package astiav
 
-//#cgo pkg-config: libavutil
 //#include <libavutil/dict.h>
 import "C"
 
-type DictionaryFlag int
+type DictionaryFlag int64
 
 // https://github.com/FFmpeg/FFmpeg/blob/n5.0/libavutil/dict.h#L67
 const (
