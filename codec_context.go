@@ -38,8 +38,17 @@ func (cc *CodecContext) Free() {
 		C.av_buffer_unref(&cc.hdc.c)
 		cc.hdc = nil
 	}
-	classers.del(cc)
-	C.avcodec_free_context(&cc.c)
+	if cc.c != nil {
+		// Make sure to clone the classer before freeing the object since
+		// the C free method may reset the pointer
+		c := newClonedClasser(cc)
+		C.avcodec_free_context(&cc.c)
+		// Make sure to remove from classers after freeing the object since
+		// the C free method may use methods needing the classer
+		if c != nil {
+			classers.del(c)
+		}
+	}
 }
 
 func (cc *CodecContext) String() string {
@@ -314,12 +323,6 @@ func (cc *CodecContext) ExtraHardwareFrames() int {
 
 func (cc *CodecContext) SetExtraHardwareFrames(n int) {
 	cc.c.extra_hw_frames = C.int(n)
-}
-func (cc *CodecContext) SetMaxBFrames(value int) {
-	cc.c.max_b_frames = C.int(value)
-}
-func (cc *CodecContext) MaxBFrames() int {
-	return int(cc.c.max_b_frames)
 }
 
 type CodecContextPixelFormatCallback func(pfs []PixelFormat) PixelFormat

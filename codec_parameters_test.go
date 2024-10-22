@@ -7,7 +7,7 @@ import (
 )
 
 func TestCodecParameters(t *testing.T) {
-	fc, err := globalHelper.inputFormatContext("video.mp4")
+	fc, err := globalHelper.inputFormatContext("video.mp4", nil)
 	require.NoError(t, err)
 	ss := fc.Streams()
 	require.Len(t, ss, 2)
@@ -74,6 +74,8 @@ func TestCodecParameters(t *testing.T) {
 	require.Equal(t, CodecTag(2), cp6.CodecTag())
 	cp6.SetColorRange(ColorRangeJpeg)
 	require.Equal(t, ColorRangeJpeg, cp6.ColorRange())
+	cp6.SetColorSpace(ColorSpaceBt709)
+	require.Equal(t, ColorSpaceBt709, cp6.ColorSpace())
 	cp6.SetCodecType(MediaTypeAudio)
 	require.Equal(t, MediaTypeAudio, cp6.CodecType())
 	cp6.SetFrameSize(1)
