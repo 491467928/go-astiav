@@ -1,8 +1,9 @@
-module github.com/asticode/go-astiav
+module github.com/491467928/go-astiav
 
 go 1.17
 
 require (
+	github.com/asticode/go-astiav v0.23.0
 	github.com/asticode/go-astikit v0.42.0
 	github.com/stretchr/testify v1.7.0
 )

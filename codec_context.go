@@ -324,6 +324,12 @@ func (cc *CodecContext) ExtraHardwareFrames() int {
 func (cc *CodecContext) SetExtraHardwareFrames(n int) {
 	cc.c.extra_hw_frames = C.int(n)
 }
+func (cc *CodecContext) SetMaxBFrames(value int) {
+	cc.c.max_b_frames = C.int(value)
+}
+func (cc *CodecContext) MaxBFrames() int {
+	return int(cc.c.max_b_frames)
+}
 
 type CodecContextPixelFormatCallback func(pfs []PixelFormat) PixelFormat
 
